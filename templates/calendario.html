@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+{% load static %}
+{% load custom_filters %}
+
+{% block title %}Calendário de Plantões{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/calendario.css' %}">
+<style>
+    /* Estilos para o Modal de Troca */
+    .swap-modal {
+        max-width: 480px !important;
+        border-radius: 24px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+    .swap-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+    .swap-info {
+        background: linear-gradient(135deg, var(--bg-hover) 0%, var(--green-100) 100%);
+        padding: 1.25rem;
+        border-radius: 16px;
+        font-size: 0.95rem;
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+        box-shadow: inset 0 2px 4px rgba(255,255,255,0.5);
+    }
+    .swap-info strong {
+        color: var(--accent-primary);
+        font-weight: 800;
+    }
+    .btn-request-swap {
+        background: linear-gradient(135deg, #fffbeb, #fef3c7); /* Fundo ambar claro */
+        color: #b45309; /* Texto laranja escuro */
+        border: 1px solid #fde68a;
+        padding: 0.6rem 1rem;
+        border-radius: 10px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        margin-top: 0.5rem;
+        display: none; /* Só mostra se for o dono */
+        width: 100%;
+        display: flex; /* overridden by inline style if not owner, need to handle carefully */
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .btn-request-swap:hover {
+        background: linear-gradient(135deg, #f59e0b, #d97706); /* Laranja vibrante no hover */
+        color: white;
+        border-color: transparent;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+    }
+    
+    .swap-select-wrapper {
+        position: relative;
+    }
+    .swap-select-wrapper select {
+        width: 100%;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        border: 2px solid var(--border-color);
+        background: var(--bg-input);
+        color: var(--text-primary);
+        font-weight: 600;
+        font-size: 0.95rem;
+        appearance: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .swap-select-wrapper select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 4px var(--accent-glow);
+    }
+    .swap-select-wrapper::after {
+        content: "▼";
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+    .swap-textarea {
+        width: 100%;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        border: 2px solid var(--border-color);
+        background: var(--bg-input);
+        color: var(--text-primary);
+        font-size: 0.95rem;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        resize: vertical;
+        min-height: 80px;
+    }
+    .swap-textarea:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 4px var(--accent-glow);
+    }
+    
+    .btn-submit-swap {
+        background: linear-gradient(135deg, var(--accent-primary), var(--green-600));
+        color: white;
+        border: none;
+        padding: 1rem;
+        border-radius: 12px;
+        font-size: 1rem;
+        font-weight: 800;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 4px 15px var(--accent-glow);
+    }
+    .btn-submit-swap:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px var(--accent-glow);
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}📅 Escala Médica{% endblock %}
+
+{% block content %}
+<div class="calendar-page">
+    <main class="calendar-container">
+        <!-- Header: Meses e Navegação -->
+        <header class="calendar-header">
+            <div class="current-month-display">
+                <span>🗓️</span> {{ current_month_name }}
+            </div>
+            <nav class="month-nav">
+                {% for m in months_nav %}
+                <a href="?year={{ m.year }}&month={{ m.month }}" 
+                   class="month-nav-link {% if m.active %}active{% endif %}"
+                   title="{{ m.full_name }}">
+                    {{ m.name }}
+                </a>
+                {% endfor %}
+            </nav>
+        </header>
+
+        <!-- Grade do Calendário -->
+        <div class="calendar-grid">
+            <!-- Dias da Semana -->
+            <div class="calendar-weekday">Dom</div>
+            <div class="calendar-weekday">Seg</div>
+            <div class="calendar-weekday">Ter</div>
+            <div class="calendar-weekday">Qua</div>
+            <div class="calendar-weekday">Qui</div>
+            <div class="calendar-weekday">Sex</div>
+            <div class="calendar-weekday">Sáb</div>
+
+            <!-- Dias do Mês -->
+            {% for week in month_days %}
+                {% for day in week %}
+                    {% if day == 0 %}
+                        <div class="calendar-day other-month"></div>
+                    {% else %}
+                        <div class="calendar-day" onclick="openDayModal({{ year }}, {{ month }}, {{ day }})">
+                            <span class="day-number">{{ day }}</span>
+                            
+                            <div class="shifts-summary">
+                                {% with shifts=shifts_by_day|get_item:day %}
+                                    {% if shifts.M %}
+                                        <div class="shift-tag period-M" title="Manhã: {{ shifts.M.medico.nome }}">
+                                            <span class="doctor-name">{{ shifts.M.medico.nome }}</span>
+                                        </div>
+                                    {% endif %}
+                                    {% if shifts.T %}
+                                        <div class="shift-tag period-T" title="Tarde: {{ shifts.T.medico.nome }}">
+                                            <span class="doctor-name">{{ shifts.T.medico.nome }}</span>
+                                        </div>
+                                    {% endif %}
+                                    {% if shifts.N %}
+                                        <div class="shift-tag period-N" title="Noite: {{ shifts.N.medico.nome }}">
+                                            <span class="doctor-name">{{ shifts.N.medico.nome }}</span>
+                                        </div>
+                                    {% endif %}
+                                {% endwith %}
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+        </div>
+    </main>
+
+    <!-- Sidebar: Médicos e Legenda -->
+    <aside class="doctor-sidebar">
+        <h3 class="sidebar-title">👨‍⚕️ Equipe do Mês</h3>
+        
+        <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="doctorSearch" placeholder="Buscar médico..." onkeyup="filterDoctors()">
+        </div>
+
+        <div class="doctor-list" id="doctorList">
+            {% for ds in doctor_stats %}
+            <div class="doctor-card" data-name="{{ ds.nome|lower }}">
+                <div class="doctor-avatar">
+                    {% if ds.foto %}
+                    <img src="{{ ds.foto }}" alt="{{ ds.nome }}">
+                    {% else %}
+                    {{ ds.nome|first|upper }}
+                    {% endif %}
+                </div>
+                <div class="doctor-info">
+                    <span class="doctor-name-list">{{ ds.nome }}</span>
+                    <span class="doctor-stats-list">{{ ds.count }} plantões</span>
+                </div>
+                <div class="badge">{{ ds.count }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </aside>
+</div>
+
+<!-- Modal de Edição -->
+<div class="modal-overlay" id="dayModal" onclick="checkClose(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h2 class="modal-title">Escalar Plantões</h2>
+            <p class="modal-date" id="modalDateDisplay"></p>
+        </header>
+
+        <div class="shift-editor">
+            <!-- Manhã -->
+            <div class="editor-slot">
+                <div class="editor-label">☀️ Manhã (07:00)</div>
+                <div class="slot-input-group">
+                    <select id="select-M">
+                        <option value="">-- Vazio --</option>
+                        {% for m in medicos %}
+                        <option value="{{ m.id }}">{{ m.nome }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn-action btn-save-mini" onclick="saveShift('M')" title="Salvar">✓</button>
+                    <button class="btn-action btn-delete-mini" onclick="deleteShift('M')" title="Excluir">✕</button>
+                </div>
+                <button id="btn-swap-M" class="btn-request-swap" onclick="openSwapModal('M')">🔄 Solicitar Troca</button>
+            </div>
+
+            <!-- Tarde -->
+            <div class="editor-slot">
+                <div class="editor-label">🌇 Tarde (13:00)</div>
+                <div class="slot-input-group">
+                    <select id="select-T">
+                        <option value="">-- Vazio --</option>
+                        {% for m in medicos %}
+                        <option value="{{ m.id }}">{{ m.nome }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn-action btn-save-mini" onclick="saveShift('T')" title="Salvar">✓</button>
+                    <button class="btn-action btn-delete-mini" onclick="deleteShift('T')" title="Excluir">✕</button>
+                </div>
+                <button id="btn-swap-T" class="btn-request-swap" onclick="openSwapModal('T')">🔄 Solicitar Troca</button>
+            </div>
+
+            <!-- Noite -->
+            <div class="editor-slot">
+                <div class="editor-label">🌙 Noite (19:00)</div>
+                <div class="slot-input-group">
+                    <select id="select-N">
+                        <option value="">-- Vazio --</option>
+                        {% for m in medicos %}
+                        <option value="{{ m.id }}">{{ m.nome }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn-action btn-save-mini" onclick="saveShift('N')" title="Salvar">✓</button>
+                    <button class="btn-action btn-delete-mini" onclick="deleteShift('N')" title="Excluir">✕</button>
+                </div>
+                <button id="btn-swap-N" class="btn-request-swap" onclick="openSwapModal('N')">🔄 Solicitar Troca</button>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn-close-modal" onclick="closeModal()">Sair e Atualizar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Solicitação de Troca -->
+<div class="modal-overlay" id="swapModal" onclick="this.style.display='none'">
+    <div class="modal-content swap-modal" onclick="event.stopPropagation()">
+        <header class="modal-header">
+            <h2 class="modal-title">🔄 Solicitar Troca</h2>
+            <p class="modal-date" id="swapDateDisplay"></p>
+        </header>
+
+        <form class="swap-form" id="swapForm">
+            <input type="hidden" id="swap-plantao-id">
+            <div class="swap-info">
+                Você está sugerindo uma troca ou substituição para o plantão de <strong id="swap-period-name"></strong>.
+            </div>
+            
+            <div class="form-group">
+                <label style="font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem; display: block;">Substituto Sugerido</label>
+                <div class="swap-select-wrapper">
+                    <select id="swap-medico-novo" required>
+                        <option value="">-- Selecione o Médico --</option>
+                        {% for m in medicos %}
+                            <option value="{{ m.id }}">{{ m.nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label style="font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem; display: block;">Justificativa/Mensagem (Opcional)</label>
+                <textarea id="swap-mensagem" class="swap-textarea" placeholder="Ex: Preciso trocar pois tenho um congresso neste dia..."></textarea>
+            </div>
+
+            <button type="button" onclick="sendSwapRequest()" class="btn-submit-swap">
+                Enviar para Aprovação do Admin
+            </button>
+        </form>
+    </div>
+</div>
+
+{{ shifts_json|json_script:"shifts-data" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentDayStr = '';
+    const shiftsData = JSON.parse(document.getElementById('shifts-data').textContent);
+    const currentUserMedicoId = "{{ user.perfil_medico.id|default:'' }}";
+
+    function openDayModal(year, month, day) {
+        const y = year;
+        const m = String(month).padStart(2, '0');
+        const d = String(day).padStart(2, '0');
+        currentDayStr = `${y}-${m}-${d}`;
+
+        document.getElementById('modalDateDisplay').innerText = `${day}/${month}/${year}`;
+        
+        const isAdmin = "{{ user.is_superuser|yesno:'true,false' }}" === 'true';
+
+        ['M', 'T', 'N'].forEach(p => {
+            const select = document.getElementById(`select-${p}`);
+            const swapBtn = document.getElementById(`btn-swap-${p}`);
+            const saveBtn = select.nextElementSibling;
+            const deleteBtn = saveBtn.nextElementSibling;
+            
+            select.value = "";
+            select.disabled = false;
+            swapBtn.style.display = "none";
+            saveBtn.style.display = "flex";
+            deleteBtn.style.display = "flex";
+
+            if (shiftsData[day] && shiftsData[day][p]) {
+                const shift = shiftsData[day][p];
+                select.value = shift.medico_id;
+                
+                const isOwner = String(shift.medico_id) === String(currentUserMedicoId);
+
+                if (!isAdmin) {
+                    // O médico logado pode solicitar troca em QUALQUER plantão
+                    select.disabled = true;
+                    swapBtn.style.display = "flex";
+                    swapBtn.dataset.shiftId = shift.id;
+                    saveBtn.style.display = "none";
+                    
+                    if (isOwner) {
+                        // Se for dono, pode excluir também
+                        deleteBtn.style.display = "flex";
+                    } else {
+                        // Se não for dono, não pode excluir
+                        deleteBtn.style.display = "none";
+                    }
+                }
+            } else {
+                // Slot vazio
+                if (!isAdmin && !currentUserMedicoId) {
+                    // Usuário sem perfil médico e não admin: não pode escalar
+                    select.disabled = true;
+                    saveBtn.style.display = "none";
+                    deleteBtn.style.display = "none";
+                }
+            }
+        });
+
+        document.getElementById('dayModal').classList.add('active');
+    }
+
+    function openSwapModal(period) {
+        const periodNames = {'M': 'Manhã', 'T': 'Tarde', 'N': 'Noite'};
+        const swapBtn = document.getElementById(`btn-swap-${period}`);
+        
+        document.getElementById('swap-plantao-id').value = swapBtn.dataset.shiftId;
+        document.getElementById('swapDateDisplay').innerText = document.getElementById('modalDateDisplay').innerText;
+        document.getElementById('swap-period-name').innerText = periodNames[period];
+        
+        document.getElementById('swapModal').style.display = 'flex';
+    }
+
+    function sendSwapRequest() {
+        const plantaoId = document.getElementById('swap-plantao-id').value;
+        const medicoNovoId = document.getElementById('swap-medico-novo').value;
+        const mensagem = document.getElementById('swap-mensagem').value;
+
+        if (!medicoNovoId) {
+            alert('Por favor, selecione um substituto.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('plantao_id', plantaoId);
+        formData.append('medico_novo_id', medicoNovoId);
+        formData.append('mensagem', mensagem);
+
+        fetch('/plantoes/solicitar-troca/', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert(data.message);
+                document.getElementById('swapModal').style.display = 'none';
+            } else {
+                alert('Erro: ' + data.message);
+            }
+        });
+    }
+
+    // Funções existentes de filtro, save, delete...
+    function filterDoctors() {
+        const query = document.getElementById('doctorSearch').value.toLowerCase();
+        const cards = document.querySelectorAll('.doctor-card');
+        cards.forEach(card => {
+            const name = card.dataset.name;
+            card.style.display = name.includes(query) ? 'flex' : 'none';
+        });
+    }
+
+    function saveShift(period) {
+        const medicoId = document.getElementById(`select-${period}`).value;
+        if (!medicoId) { alert("Selecione um médico!"); return; }
+
+        const formData = new FormData();
+        formData.append('medico_id', medicoId);
+        formData.append('data', currentDayStr);
+        formData.append('periodo', period);
+
+        fetch('/plantoes/atualizar/', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                location.reload();
+            } else {
+                alert("Erro: " + data.message);
+            }
+        });
+    }
+
+    function deleteShift(period) {
+        if (!confirm("Remover plantão?")) return;
+        const formData = new FormData();
+        formData.append('data', currentDayStr);
+        formData.append('periodo', period);
+
+        fetch('/plantoes/excluir/', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                location.reload();
+            } else {
+                alert("Erro: " + data.message);
+            }
+        });
+    }
+
+    function closeModal() {
+        document.getElementById('dayModal').classList.remove('active');
+        location.reload();
+    }
+
+    function checkClose(e) {
+        if (e.target.id === 'dayModal') closeModal();
+    }
+</script>
+{% endblock %}
