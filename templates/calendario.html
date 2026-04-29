@@ -495,5 +495,16 @@
     function checkClose(e) {
         if (e.target.id === 'dayModal') closeModal();
     }
+
+    // Centraliza o mês ativo na barra de navegação ao carregar a página
+    document.addEventListener('DOMContentLoaded', function () {
+        const nav = document.querySelector('.month-nav');
+        const activeLink = nav ? nav.querySelector('.month-nav-link.active') : null;
+        if (nav && activeLink) {
+            const navCenter = nav.offsetWidth / 2;
+            const linkCenter = activeLink.offsetLeft + activeLink.offsetWidth / 2;
+            nav.scrollLeft = linkCenter - navCenter;
+        }
+    });
 </script>
 {% endblock %}

@@ -29,10 +29,10 @@ def calendario_view(request):
     # Mes atual sendo visualizado
     current_month_name = f"{MONTHS_PT[month]} {year}"
     
-    # Navegação: 6 antes e 6 depois do mês que o usuário ESTÁ VENDO (centralizado)
+    # Navegação: 4 antes e 4 depois do mês visualizado (9 no total, ativo sempre no centro)
     months_nav = []
     start_date = date(year, month, 1)
-    for i in range(-6, 7):
+    for i in range(-4, 5):
         m_dt = start_date + relativedelta(months=i)
         months_nav.append({
             'year': m_dt.year,
